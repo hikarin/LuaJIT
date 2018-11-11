@@ -610,30 +610,8 @@ void lj_gc_fullgc(lua_State *L)
 
 /* -- Write barriers ------------------------------------------------------ */
 
-/* Move the GC propagation frontier forward. */
-void lj_gc_barrierf(global_State *g, GCobj *o, GCobj *v)
-{
-  lua_assert(isblack(o) && iswhite(v) && !isdead(g, v) && !isdead(g, o));
-  lua_assert(g->gc.state != GCSfinalize && g->gc.state != GCSpause);
-  lua_assert(o->gch.gct != ~LJ_TTAB);
-  /* Preserve invariant during propagation. Otherwise it doesn't matter. */
-  if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic)
-    gc_mark(g, v);  /* Move frontier forward. */
-  else
-    makewhite(g, o);  /* Make it white to avoid the following barrier. */
-}
-
-/* Specialized barrier for closed upvalue. Pass &uv->tv. */
 void LJ_FASTCALL lj_gc_barrieruv(global_State *g, TValue *tv)
-{
-#define TV2MARKED(x) \
-  (*((uint8_t *)(x) - offsetof(GCupval, tv) + offsetof(GCupval, marked)))
-  if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic)
-    gc_mark(g, gcV(tv));
-  else
-    TV2MARKED(tv) = (TV2MARKED(tv) & (uint8_t)~LJ_GC_COLORS) | curwhite(g);
-#undef TV2MARKED
-}
+{}
 
 /* Close upvalue. Also needs a write barrier. */
 void lj_gc_closeuv(global_State *g, GCupval *uv)
@@ -648,8 +626,6 @@ void lj_gc_closeuv(global_State *g, GCupval *uv)
   if (isgray(o)) {  /* A closed upvalue is never gray, so fix this. */
     if (g->gc.state == GCSpropagate || g->gc.state == GCSatomic) {
       gray2black(o);  /* Make it black and preserve invariant. */
-      if (tviswhite(&uv->tv))
-	lj_gc_barrierf(g, o, gcV(&uv->tv));
     } else {
       makewhite(g, o);  /* Make it white, i.e. sweep the upvalue. */
       lua_assert(g->gc.state != GCSfinalize && g->gc.state != GCSpause);
@@ -716,7 +692,7 @@ void *lj_mem_grow(lua_State *L, void *p, MSize *szp, MSize lim, MSize esz)
 
 void alloc_show()
 {
-  printf("alloc_count: %lld\n", alloc_count);
-  printf("total_alloc: %d\n", total_alloc);
+  printf("alloc_count: %d\n", alloc_count);
+  printf("total_alloc: %lld\n", total_alloc);
   printf("alloc_elapsed: %.f\n", alloc_elapsed);
 }
