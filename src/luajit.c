@@ -555,6 +555,8 @@ static int pmain(lua_State *L)
   return 0;
 }
 
+#include "lj_gc.h"
+
 int main(int argc, char **argv)
 {
   int status;
@@ -568,6 +570,7 @@ int main(int argc, char **argv)
   status = lua_cpcall(L, pmain, NULL);
   report(L, status);
   lua_close(L);
+  alloc_show();
   return (status || smain.status) ? EXIT_FAILURE : EXIT_SUCCESS;
 }
 

@@ -23,9 +23,13 @@
 #include "lj_vm.h"
 
 #define GCSTEPSIZE	1024u
-#define GCSWEEPMAX	40
-#define GCSWEEPCOST	10
-#define GCFINALIZECOST	100
+	
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <stdio.h>
+static unsigned long long total_alloc = 0ULL;
+static int alloc_count = 0;
+static double alloc_elapsed = 0.0;
 
 /* Macros to set GCobj colors and flags. */
 #define white2gray(x)		((x)->gch.marked &= (uint8_t)~LJ_GC_WHITES)
@@ -504,34 +508,23 @@ static void atomic(global_State *g, lua_State *L)
 static size_t gc_onestep(lua_State *L)
 {
   global_State *g = G(L);
-  switch (g->gc.state) {
-  case GCSpause:
-    gc_mark_start(g);  /* Start a new GC cycle by marking all GC roots. */
-    return 0;
-  case GCSpropagate:
-    if (gcref(g->gc.gray) != NULL)
-      return propagatemark(g);  /* Propagate one gray object. */
-    g->gc.state = GCSatomic;  /* End of mark phase. */
-    return 0;
-  case GCSatomic:
-    if (gcref(g->jit_L))  /* Don't run atomic phase on trace. */
-      return LJ_MAX_MEM;
-    atomic(g, L);
-    g->gc.state = GCSsweepstring;  /* Start of sweep phase. */
-    g->gc.sweepstr = 0;
-    return 0;
-  case GCSsweepstring: {
+  gc_mark_start(g);  /* Start a new GC cycle by marking all GC roots. */
+  if (gcref(g->gc.gray) != NULL)
+    propagatemark(g);  /* Propagate one gray object. */
+  atomic(g, L);
+  g->gc.state = GCSsweepstring;  /* Start of sweep phase. */
+  g->gc.sweepstr = 0;
+  while(g->gc.state != GCSsweep) {
     MSize old = g->gc.total;
     gc_fullsweep(g, &g->strhash[g->gc.sweepstr++]);  /* Sweep one chain. */
     if (g->gc.sweepstr > g->strmask)
       g->gc.state = GCSsweep;  /* All string hash chains sweeped. */
     lua_assert(old >= g->gc.total);
     g->gc.estimate -= old - g->gc.total;
-    return GCSWEEPCOST;
-    }
-  case GCSsweep: {
+  }
+  while(g->gc.state == GCSsweep) {
     MSize old = g->gc.total;
-    setmref(g->gc.sweep, gc_sweep(g, mref(g->gc.sweep, GCRef), GCSWEEPMAX));
+    setmref(g->gc.sweep, gc_sweep(g, mref(g->gc.sweep, GCRef), LJ_MAX_MEM));
     lua_assert(old >= g->gc.total);
     g->gc.estimate -= old - g->gc.total;
     if (gcref(*mref(g->gc.sweep, GCRef)) == NULL) {
@@ -543,24 +536,13 @@ static size_t gc_onestep(lua_State *L)
 	g->gc.debt = 0;
       }
     }
-    return GCSWEEPMAX*GCSWEEPCOST;
-    }
-  case GCSfinalize:
-    if (gcref(g->gc.mmudata) != NULL) {
-      if (gcref(g->jit_L))  /* Don't call finalizers on trace. */
-	return LJ_MAX_MEM;
-      gc_finalize(L);  /* Finalize one userdata object. */
-      if (g->gc.estimate > GCFINALIZECOST)
-	g->gc.estimate -= GCFINALIZECOST;
-      return GCFINALIZECOST;
-    }
-    g->gc.state = GCSpause;  /* End of GC cycle. */
-    g->gc.debt = 0;
-    return 0;
-  default:
-    lua_assert(0);
-    return 0;
   }
+  while(gcref(g->gc.mmudata) != NULL) {
+    gc_finalize(L);  /* Finalize one userdata object. */
+  }
+  g->gc.state = GCSpause;  /* End of GC cycle. */
+  g->gc.debt = 0;
+  return 0;
 }
 
 /* Perform a limited amount of incremental GC steps. */
@@ -694,6 +676,14 @@ void *lj_mem_realloc(lua_State *L, void *p, MSize osz, MSize nsz)
 /* Allocate new GC object and link it to the root set. */
 void * LJ_FASTCALL lj_mem_newgco(lua_State *L, MSize size)
 {
+  struct rusage usage;
+  struct timeval ut1, ut2;
+  getrusage(RUSAGE_SELF, &usage );
+  ut1 = usage.ru_utime;
+  
+  alloc_count++;
+  total_alloc += size;
+  
   global_State *g = G(L);
   GCobj *o = (GCobj *)g->allocf(g->allocd, NULL, 0, size);
   if (o == NULL)
@@ -703,6 +693,11 @@ void * LJ_FASTCALL lj_mem_newgco(lua_State *L, MSize size)
   setgcrefr(o->gch.nextgc, g->gc.root);
   setgcref(g->gc.root, o);
   newwhite(g, o);
+
+  getrusage(RUSAGE_SELF, &usage );
+  ut2 = usage.ru_utime;
+  alloc_elapsed += (ut2.tv_sec - ut1.tv_sec)+(double)(ut2.tv_usec-ut1.tv_usec)*1e-6;
+  
   return o;
 }
 
@@ -719,3 +714,9 @@ void *lj_mem_grow(lua_State *L, void *p, MSize *szp, MSize lim, MSize esz)
   return p;
 }
 
+void alloc_show()
+{
+  printf("alloc_count: %lld\n", alloc_count);
+  printf("total_alloc: %d\n", total_alloc);
+  printf("alloc_elapsed: %.f\n", alloc_elapsed);
+}

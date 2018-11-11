@@ -8,6 +8,8 @@
 
 #include "lj_obj.h"
 
+void alloc_show();
+
 /* Garbage collector states. Order matters. */
 enum {
   GCSpause, GCSpropagate, GCSatomic, GCSsweepstring, GCSsweep, GCSfinalize
@@ -56,10 +58,10 @@ LJ_FUNC void lj_gc_fullgc(lua_State *L);
 
 /* GC check: drive collector forward if the GC threshold has been reached. */
 #define lj_gc_check(L) \
-  { if (LJ_UNLIKELY(G(L)->gc.total >= G(L)->gc.threshold)) \
+  { if (LJ_UNLIKELY(G(L)->gc.total >= 0x7FFFFFFF))	\
       lj_gc_step(L); }
 #define lj_gc_check_fixtop(L) \
-  { if (LJ_UNLIKELY(G(L)->gc.total >= G(L)->gc.threshold)) \
+  { if (LJ_UNLIKELY(G(L)->gc.total >= 0x7FFFFFFF))	\
       lj_gc_step_fixtop(L); }
 
 /* Write barriers. */
@@ -79,22 +81,13 @@ static LJ_AINLINE void lj_gc_barrierback(global_State *g, GCtab *t)
 }
 
 /* Barrier for stores to table objects. TValue and GCobj variant. */
-#define lj_gc_anybarriert(L, t)  \
-  { if (LJ_UNLIKELY(isblack(obj2gco(t)))) lj_gc_barrierback(G(L), (t)); }
-#define lj_gc_barriert(L, t, tv) \
-  { if (tviswhite(tv) && isblack(obj2gco(t))) \
-      lj_gc_barrierback(G(L), (t)); }
-#define lj_gc_objbarriert(L, t, o)  \
-  { if (iswhite(obj2gco(o)) && isblack(obj2gco(t))) \
-      lj_gc_barrierback(G(L), (t)); }
+#define lj_gc_anybarriert(L, t)  {}
+#define lj_gc_barriert(L, t, tv) {}
+#define lj_gc_objbarriert(L, t, o)  {}
 
 /* Barrier for stores to any other object. TValue and GCobj variant. */
-#define lj_gc_barrier(L, p, tv) \
-  { if (tviswhite(tv) && isblack(obj2gco(p))) \
-      lj_gc_barrierf(G(L), obj2gco(p), gcV(tv)); }
-#define lj_gc_objbarrier(L, p, o) \
-  { if (iswhite(obj2gco(o)) && isblack(obj2gco(p))) \
-      lj_gc_barrierf(G(L), obj2gco(p), obj2gco(o)); }
+#define lj_gc_barrier(L, p, tv) {}
+#define lj_gc_objbarrier(L, p, o) {}
 
 /* Allocator. */
 LJ_FUNC void *lj_mem_realloc(lua_State *L, void *p, MSize osz, MSize nsz);
