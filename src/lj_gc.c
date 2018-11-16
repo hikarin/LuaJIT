@@ -31,6 +31,10 @@
 #define GCSWEEPCOST	10
 #define GCFINALIZECOST	100
 
+static int gc_count = 0;
+static int alloc_count = 0;
+static unsigned long long total_alloc = 0ULL;
+
 /* Macros to set GCobj colors and flags. */
 #define white2gray(x)		((x)->gch.marked &= (uint8_t)~LJ_GC_WHITES)
 #define gray2black(x)		((x)->gch.marked |= LJ_GC_BLACK)
@@ -649,6 +653,7 @@ static size_t gc_onestep(lua_State *L)
 #endif
       } else {  /* Otherwise skip this phase to help the JIT. */
 	g->gc.state = GCSpause;  /* End of GC cycle. */
+	gc_count++;
 	g->gc.debt = 0;
       }
     }
@@ -667,6 +672,7 @@ static size_t gc_onestep(lua_State *L)
     if (!g->gc.nocdatafin) lj_tab_rehash(L, ctype_ctsG(g)->finalizer);
 #endif
     g->gc.state = GCSpause;  /* End of GC cycle. */
+    gc_count++;
     g->gc.debt = 0;
     return 0;
   default:
@@ -747,6 +753,7 @@ void lj_gc_fullgc(lua_State *L)
   lua_assert(g->gc.state == GCSfinalize || g->gc.state == GCSpause);
   /* Now perform a full GC. */
   g->gc.state = GCSpause;
+  gc_count++;
   do { gc_onestep(L); } while (g->gc.state != GCSpause);
   g->gc.threshold = (g->gc.estimate/100) * g->gc.pause;
   g->vmstate = ostate;
@@ -838,6 +845,10 @@ void * LJ_FASTCALL lj_mem_newgco(lua_State *L, MSize size)
   setgcrefr(o->gch.nextgc, g->gc.root);
   setgcref(g->gc.root, o);
   newwhite(g, o);
+
+  alloc_count++;
+  total_alloc += size;
+ 
   return o;
 }
 
@@ -854,3 +865,9 @@ void *lj_mem_grow(lua_State *L, void *p, MSize *szp, MSize lim, MSize esz)
   return p;
 }
 
+void show_alloc()
+{
+  printf("gc_count: %d\n", gc_count);
+  printf("alloc_count: %d\n", alloc_count);
+  printf("total_alloc: %lld\n", total_alloc);
+}
