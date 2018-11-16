@@ -30,6 +30,7 @@
 static unsigned long long total_alloc = 0ULL;
 static int alloc_count = 0;
 static double alloc_elapsed = 0.0;
+static int gc_count = 0;
 
 /* Macros to set GCobj colors and flags. */
 #define white2gray(x)		((x)->gch.marked &= (uint8_t)~LJ_GC_WHITES)
@@ -507,6 +508,7 @@ static void atomic(global_State *g, lua_State *L)
 /* GC state machine. Returns a cost estimate for each step performed. */
 static size_t gc_onestep(lua_State *L)
 {
+  gc_count++;
   global_State *g = G(L);
   gc_mark_start(g);  /* Start a new GC cycle by marking all GC roots. */
   if (gcref(g->gc.gray) != NULL)
@@ -692,6 +694,7 @@ void *lj_mem_grow(lua_State *L, void *p, MSize *szp, MSize lim, MSize esz)
 
 void alloc_show()
 {
+  printf("gc_count: %d\n", gc_count);
   printf("alloc_count: %d\n", alloc_count);
   printf("total_alloc: %lld\n", total_alloc);
   printf("alloc_elapsed: %.f\n", alloc_elapsed);
