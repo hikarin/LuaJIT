@@ -30,6 +30,7 @@
 static unsigned long long total_alloc = 0ULL;
 static int alloc_count = 0;
 static double alloc_elapsed = 0.0;
+static double gc_elapsed = 0.0;
 static int gc_count = 0;
 
 /* Macros to set GCobj colors and flags. */
@@ -508,7 +509,11 @@ static void atomic(global_State *g, lua_State *L)
 /* GC state machine. Returns a cost estimate for each step performed. */
 static size_t gc_onestep(lua_State *L)
 {
-  gc_count++;
+  struct rusage usage;
+  struct timeval ut1, ut2;
+  getrusage(RUSAGE_SELF, &usage );
+  ut1 = usage.ru_utime;
+  
   global_State *g = G(L);
   gc_mark_start(g);  /* Start a new GC cycle by marking all GC roots. */
   if (gcref(g->gc.gray) != NULL)
@@ -544,6 +549,11 @@ static size_t gc_onestep(lua_State *L)
   }
   g->gc.state = GCSpause;  /* End of GC cycle. */
   g->gc.debt = 0;
+
+  getrusage(RUSAGE_SELF, &usage );
+  ut2 = usage.ru_utime;
+  gc_elapsed += (ut2.tv_sec - ut1.tv_sec)+(double)(ut2.tv_usec-ut1.tv_usec)*1e-6;
+  
   return 0;
 }
 
@@ -555,6 +565,7 @@ int LJ_FASTCALL lj_gc_step(lua_State *L)
   int32_t ostate = g->vmstate;
   setvmstate(g, GC);
   lim = (GCSTEPSIZE/100) * g->gc.stepmul;
+  gc_count++;
   if (lim == 0)
     lim = LJ_MAX_MEM;
   if (g->gc.total > g->gc.threshold)
@@ -695,6 +706,7 @@ void *lj_mem_grow(lua_State *L, void *p, MSize *szp, MSize lim, MSize esz)
 void alloc_show()
 {
   printf("gc_count: %d\n", gc_count);
+  printf("gc_elapsed: %.f\n", gc_elapsed);
   printf("alloc_count: %d\n", alloc_count);
   printf("total_alloc: %lld\n", total_alloc);
   printf("alloc_elapsed: %.f\n", alloc_elapsed);
